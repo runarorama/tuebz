@@ -25,6 +25,8 @@ instance Category SF where
   (Emit a as) . sf = Emit a (as . sf)
   (Receive f) . (Emit b bs) = f b . bs
   sf . (Receive g) = Receive (\a -> sf . g a)
+  _ . Stop = Stop
+  Stop . _ = Stop
 
 arr :: (a -> b) -> SF a b
 arr f = z where
@@ -90,10 +92,20 @@ chunk = Receive wff
                            | otherwise = Emit (L.toList xs) (Receive wff)
 
 (***) :: SF a a2 -> SF b b2 -> SF2 a2 b2 c -> SF2 a b c
-(***) = undefined
+(***) a b (Emit2 c sf) = Emit2 c $ (a *** b) sf
+(***) (Emit a sf) b (ReceiveL f) = (sf *** b) (f a)
+(***) (Receive g) b (ReceiveL f) = ReceiveL (\a -> ((g a) *** b) (ReceiveL f))
+(***) Stop b (ReceiveL f) = Stop2
+(***) a (Emit b sf) (ReceiveR f) = (a *** sf) (f b)
+(***) a (Receive g) (ReceiveR f) = ReceiveR (\b -> (a *** (g b)) (ReceiveR f))
+(***) _ _ _ = Stop2
 
-(||>) :: SF2 a b c -> SF c c2 -> SF2 a b c2
-(||>) = undefined
+(||>) :: SF2 a b c -> SF c d -> SF2 a b d
+s ||> Emit d t = Emit2 d (s ||> t)
+Emit2 c s ||> Receive f = s ||> f c
+ReceiveL g ||> x = ReceiveL (\a -> g a ||> x)
+ReceiveR g ||> x = ReceiveR (\b -> g b ||> x)
+_ ||> _ = Stop2
 
 passL :: SF2 a b a
 passL = liftL (arr id)
@@ -104,10 +116,12 @@ passR = liftR (arr id)
 liftL :: SF a b -> SF2 a c b
 liftL (Receive f) = ReceiveL (liftL . f)
 liftL (Emit b sf) = Emit2 b (liftL sf)
+liftL Stop = Stop2
 
 liftR :: SF a b -> SF2 c a b
 liftR (Receive f) = ReceiveR (liftR . f)
 liftR (Emit a sf) = Emit2 a (liftR sf)
+liftR Stop = Stop2
 
 mergeOuter :: Ord k => SF2 (Maybe ([a], k)) (Maybe ([b], k)) (These a b)
 mergeOuter = ReceiveL (\aks -> ReceiveR (\bks ->
