@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses, Rank2Types, GADTs, PolyKinds, DataKinds, KindSignatures, FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, Rank2Types, GADTs, KindSignatures, FlexibleInstances #-}
 
 module Xylo where
 
@@ -14,19 +14,17 @@ import Data.Maybe (isJust)
 data SF k a b = Emit b (SF k a b)
               | Receive (k a (SF k a b))
 
-data Product a b = Pair a b
+data Fork a b where
+  L :: (a -> c) -> Fork (a, b) c
+  R :: (b -> c) -> Fork (a, b) c
 
-data Fork :: Product * * -> * -> * where
-  L :: (a -> c) -> Fork (Pair a b) c
-  R :: (b -> c) -> Fork (Pair a b) c
-
-data NDFork :: Product * * -> * -> * where
-  NDL :: (a -> c) -> NDFork (Pair a b) c
-  NDR :: (b -> c) -> NDFork (Pair a b) c
-  NDB :: (a -> c) -> (b -> c) -> NDFork (Pair a b) c
+data NDFork a b where
+  NDL :: (a -> c) -> NDFork (a, b) c
+  NDR :: (b -> c) -> NDFork (a, b) c
+  NDB :: (a -> c) -> (b -> c) -> NDFork (a, b) c
 
 type SF1 = SF (->)
-type SF2 a b = SF Fork (Pair a b)
+type SF2 a b = SF Fork (a, b)
 
 instance Category (SF (->)) where
   id = arr id
