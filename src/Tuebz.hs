@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses, Rank2Types, GADTs, KindSignatures, FlexibleInstances #-}
 
-module Xylo where
+module Tuebz where
 
 import Control.Monad (join)
 import Control.Applicative ((<*>), (<$>), Applicative)
