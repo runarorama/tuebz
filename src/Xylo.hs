@@ -5,11 +5,12 @@ module Xylo where
 import Control.Monad (join)
 import Control.Applicative ((<*>), (<$>), Applicative)
 import Control.Category
-import Prelude hiding (takeWhile, (++), zip, id, (.))
+import Prelude hiding (takeWhile, zip, id, (.))
+import qualified Prelude as P
 import qualified Data.DList as L
 import Data.DList (DList)
 import Data.Function (fix)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromJust)
 
 data SF k a b = Emit b (SF k a b)
               | Receive (k a (SF k a b))
@@ -51,6 +52,12 @@ fromList (h:t) = Emit (Just h) (fromList t)
 prepend :: [a] -> SF1 a a
 prepend [] = arr id
 prepend (h:t) = Emit h (prepend t)
+
+addL :: SF1 a b -> SF2 b c d -> SF2 a c d
+addL = (*** id)
+
+addR :: SF1 a b -> SF2 c b d -> SF2 c a d
+addR = (id ***)
 
 buffer :: Int -> SF1 a [a]
 buffer n = z
@@ -158,8 +165,8 @@ mergeOuter = Receive (L (\aks -> Receive (R (\bks ->
                       ||> prepend (map (Just . That) $ fst bs)
     (Just (as, k1), Just (bs, k2))
       | k1 == k2 -> mergeOuter ||> prepend (Just <$> (These <$> as <*> bs))
-      | k1 < k2 -> mergeOuter ||> prepend (map (Just . This) as)
-      | otherwise -> mergeOuter ||> prepend (map (Just . That) bs)))))
+      | k1 < k2 -> (addR (prepend [bks]) mergeOuter) ||> prepend (map (Just . This) as)
+      | otherwise -> (addL (prepend [aks]) mergeOuter) ||> prepend (map (Just . That) bs)))))
   where
     unMaybe :: (a -> b) -> SF1 (Maybe ([a],k)) (Maybe b)
     unMaybe f = arr (\o -> (map f . fst) <$> o) >>> liftMaybe unbuffer
@@ -171,6 +178,7 @@ mojoin l r = (z l *** z r) mergeOuter where
   z g = chunk . (arr $ f g)
 
 data These a b = This a | That b | These a b
+  deriving (Show, Ord, Eq)
 
 fromMaybes :: Maybe a -> Maybe b -> These a b
 fromMaybes (Just a) (Just b) = These a b
@@ -179,10 +187,26 @@ fromMaybes Nothing (Just b) = That b
 fromMaybes _ _ = error "fromMaybes Nothing Nothing"
 
 infixl 9 |>
-infixl 8 ++
+infixl 8 |+|
 
 (|>) :: Stream f => f a -> SF1 a b -> f b
 s |> f = transform f s
+
+instance Stream [] where
+  empty = []
+
+  transform (Emit x t) xs = x : transform t xs
+  transform (Receive f) (x:xs) = transform (f x) xs
+  transform _ _ = []
+
+  align (Emit x t) xs ys = x : align t xs ys
+  align (Receive (L f)) (x:xs) ys = align (f x) xs ys
+  align (Receive (R f)) xs (y:ys) = align (f y) xs ys
+  align _ _ _ = []
+
+  (|+|) = (++)
+
+  trim = map fromJust . P.takeWhile isJust
 
 class Stream f where
 
@@ -192,12 +216,12 @@ class Stream f where
 
   align :: SF2 a b c -> f a -> f b -> f c
 
-  (++) :: f a -> f a -> f a
+  (|+|) :: f a -> f a -> f a
+
+  trim :: f (Maybe a) -> f a
 
   apply :: f (a -> b) -> f a -> f b
   apply f a = zip f a |> arr (uncurry ($))
-
-  trim :: f (Maybe a) -> f a
 
   literal :: [a] -> f a
   literal as = trim $ empty |> fromList as
@@ -215,7 +239,7 @@ class Stream f where
     |> arr (uncurry fromMaybes)
 
   terminated :: f a -> f (Maybe a)
-  terminated a = (a |> arr Just ++ pure Nothing)
+  terminated a = (a |> arr Just |+| pure Nothing)
 
   joinAll :: Ord k => (a -> k) -> (b -> k) -> f a -> f b -> f (These a b)
   joinAll f g a b = trim $ align (mojoin f g) (terminated a) (terminated b)
