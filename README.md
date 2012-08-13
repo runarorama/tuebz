@@ -1,4 +1,4 @@
-xylo
+Tübz
 ====
 
-A stream processing library for Haskell
+A stream processing library for Haskell.
